@@ -14,3 +14,9 @@ hs_err_pid*
 # Intellij
 *.iml
 .idea/
+out/
+
+# jdbc
+*.jdbc
+*.log
+database/

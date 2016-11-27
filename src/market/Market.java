@@ -8,7 +8,9 @@ import java.rmi.RemoteException;
 
 public interface Market extends Remote {
 
-    void register(String trader) throws RemoteException, RejectedException;
+    void login(String username, String password) throws RemoteException, RejectedException;
+
+    void register(String trader, String password) throws RemoteException, RejectedException;
 
     void unregister(String trader) throws RemoteException, RejectedException;
 

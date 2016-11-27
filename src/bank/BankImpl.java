@@ -1,58 +1,135 @@
 package bank;
 
+import javax.persistence.*;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.List;
 
 @SuppressWarnings("serial")
-public class BankImpl extends UnicastRemoteObject implements Bank {
-    private String bankName;
-    private Map<String, Account> accounts = new HashMap<>();
+public class BankImpl extends UnicastRemoteObject implements Bank
+{
+    private EntityManagerFactory emFactory;
 
-    public BankImpl(String bankName) throws RemoteException {
+    public BankImpl() throws RemoteException
+    {
         super();
-        this.bankName = bankName;
+        emFactory = Persistence.createEntityManagerFactory("bank");
+
+
     }
 
-    @Override
-    public synchronized String[] listAccounts() {
-        return accounts.keySet().toArray(new String[1]);
-    }
+    public Account newAccount(String name) throws RejectedException
+    {
+        EntityManager em = null;
+        try
+        {
+            em = beginTransaction();
+            List<Account> existingAccounts = em.createNamedQuery("findAccountWithName", Account.class).
+                    setParameter("ownerName", name).getResultList();
+            if (existingAccounts.size() != 0)
+            {
+                // account exists, can not be created.
+                throw new RejectedException("Rejected: Account for: " + name + " already exists");
+            }
 
-    @Override
-    public synchronized Account newAccount(String name) throws RemoteException,
-            RejectedException {
-        AccountImpl account = (AccountImpl) accounts.get(name);
-        if (account != null) {
-            System.out.println("Account [" + name + "] exists!!!");
-            throw new RejectedException("Rejected: Bank: " + bankName
-                    + " Account for: " + name + " already exists: " + account);
+            // create account.
+            Account account = new Account(new Owner(name), 0);
+            em.persist(account);
+            return account;
+        } finally
+        {
+            if (em == null)
+                System.err.println("ERROR");
+            commitTransaction(em);
         }
-        account = new AccountImpl(name);
-        accounts.put(name, account);
-        System.out.println("Bank: " + bankName + " Account: " + account
-                + " has been created for " + name);
-        return account;
     }
 
-    @Override
-    public synchronized Account getAccount(String name) {
-        return accounts.get(name);
-    }
+    public void deposit(String ownerName, float value) throws RejectedException
+    {
+        EntityManager em = null;
+        try
+        {
+            em = beginTransaction();
 
-    @Override
-    public synchronized boolean deleteAccount(String name) {
-        if (!hasAccount(name)) {
-            return false;
+            getAccount(ownerName, em).deposit(value);
+        } finally
+        {
+            commitTransaction(em);
         }
-        accounts.remove(name);
-        System.out.println("Bank: " + bankName + " Account for " + name
-                + " has been deleted");
-        return true;
     }
 
-    private boolean hasAccount(String name) {
-        return accounts.get(name) != null;
+    public void withdraw(String ownerName, float value) throws RejectedException
+    {
+        EntityManager em = null;
+        try
+        {
+            em = beginTransaction();
+
+            getAccount(ownerName, em).withdraw(value);
+        } finally
+        {
+            commitTransaction(em);
+        }
+    }
+
+    public Account findAccount(String ownerName)
+    {
+        EntityManager em = null;
+        try
+        {
+            em = beginTransaction();
+
+            Account account = getAccount(ownerName, em);
+            return account;
+        } finally
+        {
+            commitTransaction(em);
+        }
+    }
+
+    public void deleteAccount(String name)
+    {
+        EntityManager em = null;
+        try
+        {
+            em = beginTransaction();
+
+            Account account = getAccount(name, em);
+            em.remove(account);
+
+        } finally
+        {
+            commitTransaction(em);
+        }
+    }
+
+    private Account getAccount(String ownerName, EntityManager em)
+    {
+        if (ownerName == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return (Account) em.createNamedQuery("findAccountWithName").
+                    setParameter("ownerName", ownerName).getSingleResult();
+        } catch (NoResultException noSuchAccount)
+        {
+            return null;
+        }
+    }
+
+    private EntityManager beginTransaction()
+    {
+        EntityManager em = emFactory.createEntityManager();
+        EntityTransaction transaction = em.getTransaction();
+        transaction.begin();
+        return em;
+    }
+
+    private void commitTransaction(EntityManager em)
+    {
+        em.getTransaction().commit();
     }
 }

@@ -37,7 +37,7 @@ public class Client extends UnicastRemoteObject implements Trader {
 
     // Enumeration of possible commands
     enum CommandName {
-        register(MARKET_COMMAND), unregister(MARKET_COMMAND), sell(MARKET_COMMAND), buy(MARKET_COMMAND),
+        register(MARKET_COMMAND), unregister(MARKET_COMMAND), login(MARKET_COMMAND), sell(MARKET_COMMAND), buy(MARKET_COMMAND),
         wish(MARKET_COMMAND), list(MARKET_COMMAND), newAccount(BANK_COMMAND), deleteAccount(BANK_COMMAND),
         deposit(BANK_COMMAND), withdraw(BANK_COMMAND), balance(BANK_COMMAND), quit(APP_COMMAND), help(APP_COMMAND);
 
@@ -91,12 +91,12 @@ public class Client extends UnicastRemoteObject implements Trader {
         System.out.println("Connected to market: " + this.marketName);
 
         // New bank account
-        try {
+       /* try {
             this.account = bankobj.newAccount(getClientName());
         } catch (RejectedException e) {
             System.err.println("Account creation rejected : " + e);
             System.exit(1);
-        }
+        }*/
     }
 
     @Override
@@ -126,6 +126,7 @@ public class Client extends UnicastRemoteObject implements Trader {
 
     // Console application
     public void run() {
+
         BufferedReader consoleIn = new BufferedReader(new InputStreamReader(System.in));
 
         while (true) {
@@ -158,6 +159,7 @@ public class Client extends UnicastRemoteObject implements Trader {
         int userInputTokenNo = 1;
         String itemName = null;
         float itemPrice = 0f;
+        String password = "";
 
         // Parse the command
         try {
@@ -191,7 +193,10 @@ public class Client extends UnicastRemoteObject implements Trader {
                 case MARKET_COMMAND:
                     switch (userInputTokenNo) {
                         case 2:
-                            itemName = tokenizer.nextToken();
+                            if (commandName.equals(CommandName.register) || commandName.equals(CommandName.login))
+                                password = tokenizer.nextToken();
+                            else
+                                itemName = tokenizer.nextToken();
                             break;
                         case 3:
                             try {
@@ -224,7 +229,11 @@ public class Client extends UnicastRemoteObject implements Trader {
                     System.err.println("You need to specify the item name");
                     return null;
                 }
-                command = new CommandMarket(commandName, new Item(itemName, itemPrice), this);
+
+                if (commandName.equals(CommandName.register) || commandName.equals(CommandName.login))
+                    command = new CommandMarket(commandName, this, password);
+                else
+                    command = new CommandMarket(commandName, new Item(itemName, itemPrice, 1), this);
                 break;
             case BANK_COMMAND:
                 command = new CommandBank(commandName, this.clientName, amount);
@@ -266,6 +275,7 @@ public class Client extends UnicastRemoteObject implements Trader {
     private class CommandMarket extends Command {
         private Item item;
         private Trader trader;
+        private String password;
 
         public Item getItem() {
             return item;
@@ -277,11 +287,20 @@ public class Client extends UnicastRemoteObject implements Trader {
             this.trader = trader;
         }
 
+        private CommandMarket(CommandName commandName, Trader trader, String password) {
+            super(commandName);
+            this.trader = trader;
+            this.password = password;
+        }
+
         @Override
         public void execute() throws RemoteException, bank.RejectedException, market.RejectedException {
             switch (this.getCommandName()) {
+                case login:
+                    market.login(clientName, password);
+                    return;
                 case register:
-                    market.register(clientName);
+                    market.register(clientName, password);
                     return;
                 case unregister:
                     market.unregister(clientName);
@@ -331,20 +350,19 @@ public class Client extends UnicastRemoteObject implements Trader {
                     return;
                 case deleteAccount:
                     bankobj.deleteAccount(clientName);
-                    account = null;
                     return;
             }
 
             // all further commands require a Account reference
             switch (this.getCommandName()) {
                 case deposit:
-                    account.deposit(this.getAmount());
+                    bankobj.deposit(clientName, amount);
                     break;
                 case withdraw:
-                    account.withdraw(this.getAmount());
+                    bankobj.withdraw(clientName, amount);
                     break;
                 case balance:
-                    System.out.println("balance: $" + account.getBalance());
+                    System.out.println("balance: $" + bankobj.findAccount(clientName).getBalance());
                     break;
                 default:
                     System.err.println("Illegal bank command to be executed");

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<persistence xmlns="http://java.sun.com/xml/ns/persistence"
+             version="2.0">
+
+    <persistence-unit name="bank" transaction-type="RESOURCE_LOCAL">
+        <class>bank.Account</class>
+        <class>bank.Owner</class>
+
+        <properties>
+            <!-- <property name="eclipselink.ddl-generation" value="drop-and-create-tables"/> -->
+            <property name="eclipselink.ddl-generation.output-mode" value="both"/>
+            <property name="eclipselink.logging.level" value="INFO"/>
+            <property name="javax.persistence.jdbc.password" value="admin"/>
+            <property name="javax.persistence.jdbc.user" value="admin"/>
+            <property name="javax.persistence.jdbc.url"
+                      value="jdbc:derby://localhost:1527/bank;create=true"/>
+            <property name="javax.persistence.jdbc.driver" value="org.apache.derby.jdbc.ClientDriver"/>
+        </properties>
+    </persistence-unit>
+
+    <persistence-unit name="market" transaction-type="RESOURCE_LOCAL">
+        <class>market.User</class>
+        <class>market.Item</class>
+        <class>market.ItemKey</class>
+
+        <properties>
+            <!-- <property name="eclipselink.ddl-generation" value="drop-and-create-tables"/> -->
+            <property name="eclipselink.ddl-generation.output-mode" value="both"/>
+            <property name="eclipselink.logging.level" value="INFO"/>
+            <property name="javax.persistence.jdbc.password" value="admin"/>
+            <property name="javax.persistence.jdbc.user" value="admin"/>
+            <property name="javax.persistence.jdbc.url"
+                      value="jdbc:derby://localhost:1527/market;create=true"/>
+            <property name="javax.persistence.jdbc.driver" value="org.apache.derby.jdbc.ClientDriver"/>
+        </properties>
+    </persistence-unit>
+
+</persistence>

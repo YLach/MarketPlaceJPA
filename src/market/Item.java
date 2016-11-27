@@ -1,16 +1,83 @@
 package market;
 
 
+import javax.persistence.*;
 import java.io.Serializable;
 
+@NamedQueries({
+        @NamedQuery(
+                name = "AllItemsToSell",
+                query = "SELECT i FROM Items i"
+        ),
+
+        @NamedQuery(
+                name = "FindItemsBySeller",
+                query = "SELECT i FROM Items i WHERE i.seller.username LIKE :sellerName",
+                lockMode = LockModeType.PESSIMISTIC_FORCE_INCREMENT
+        ),
+})
+
+
+@Entity(name = "Items")
 public class Item implements Serializable, Comparable<Item> {
 
-    private final String name;
-    private final float price;
+    @EmbeddedId
+    private ItemKey itemKey;
 
-    public Item(String name, float price) {
-        this.name = name;
-        this.price = price;
+    @OneToOne(cascade = CascadeType.ALL)
+    @JoinColumn(name = "seller", nullable = false)
+    private User seller;
+
+    private int amount = 0;
+
+    @Version
+    @Column(name = "PESSLOCK")
+    private int versionNum;
+
+    public Item() {
+        this("", 0f, 0);
+    }
+
+    public Item(String name, float price, int amount) {
+        this.itemKey = new ItemKey(name, price);
+        this.amount = amount;
+        this.seller = null;
+    }
+
+    public Item(String name, float price, int amount, User seller) {
+        this.itemKey = new ItemKey(name, price);
+        this.amount = amount;
+        this.seller = seller;
+    }
+
+    public Item(Item item, User seller) {
+        this(item.getName(), item.getPrice(), item.getAmount(), seller);
+    }
+
+    public ItemKey getItemKey() {
+        return itemKey;
+    }
+
+    public String getName() {
+        return itemKey.getName();
+    }
+
+    public float getPrice() {
+        return itemKey.getPrice();
+    }
+
+    public User getSeller() {
+        return seller;
+    }
+
+    public int getAmount() {
+        return amount;
+    }
+
+    public void setAmount(int amount) throws RejectedException {
+        if (amount < 0)
+            throw new RejectedException("Item amount update: Invalid amount");
+        this.amount = amount;
     }
 
     @Override
@@ -20,22 +87,22 @@ public class Item implements Serializable, Comparable<Item> {
 
         Item item = (Item) o;
 
-        if (price != item.price) return false;
-        return name.equals(item.name);
+        return item.getItemKey().equals(this.getItemKey());
     }
 
     @Override
     public int hashCode() {
-        int result = name.hashCode();
-        result = 31 * result + (price != +0.0f ? Float.floatToIntBits(price) : 0);
+        int result = itemKey.hashCode();
+        result = 31 * result + amount;
         return result;
     }
 
     @Override
     public String toString() {
         return "Item[" +
-                "name : " + name +
-                ", price : $" + price +
+                "name : " + itemKey.getName() +
+                ", price : $" + itemKey.getPrice() +
+                ", amount : " + amount +
                 ']';
     }
 
@@ -44,21 +111,11 @@ public class Item implements Serializable, Comparable<Item> {
         int cmp = this.getName().compareTo(o.getName());
         if (cmp == 0) {
             // If name equal, check price
-            if (this.price < o.getPrice())
+            if (this.itemKey.getPrice() < o.getPrice())
                 cmp = -1;
-            else if (this.price > o.getPrice())
+            else if (this.itemKey.getPrice() > o.getPrice())
                 cmp = 1;
         }
         return cmp;
     }
-
-    public String getName() {
-        return name;
-    }
-
-    public float getPrice() {
-        return price;
-    }
-
-
 }

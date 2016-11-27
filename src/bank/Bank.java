@@ -3,12 +3,15 @@ package bank;
 import java.rmi.Remote;
 import java.rmi.RemoteException;
 
-public interface Bank extends Remote {
-    public Account newAccount(String name) throws RemoteException, RejectedException;
+public interface Bank extends Remote
+{
+    public Account newAccount(String ownerName) throws RemoteException, RejectedException;
 
-    public Account getAccount(String name) throws RemoteException;
+    public Account findAccount(String ownerName) throws RemoteException;
 
-    public boolean deleteAccount(String name) throws RemoteException;
+    public void deleteAccount(String ownerName) throws RemoteException;
 
-    public String[] listAccounts() throws RemoteException;
+    public void deposit(String ownerName, float value) throws RemoteException, RejectedException;
+
+    public void withdraw(String ownerName, float value) throws RemoteException, RejectedException;
 }
