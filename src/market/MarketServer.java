@@ -42,19 +42,6 @@ public class MarketServer {
             MarketImpl market = new MarketImpl(BANK, DEFAULT_LOCAL_REGISTRY_PORT_NUMBER);
             Naming.rebind("rmi://localhost:" + registryPortNumber + "/" + DEFAULT_MARKET_NAME, market);
 
-             System.out.println(market.getAllItems());
-           /* try {
-                market.register("Jen", "THISISMYPASSWORD");
-
-
-                market.sell(new Item("Dog", 15, 3), new Client("Jen"));
-
-                System.out.println(market.getAllItems());
-
-            } catch (RejectedException e) {
-                e.printStackTrace();
-            }*/
-
         } catch (RemoteException | MalformedURLException re) {
             System.err.println(re);
             System.exit(1);

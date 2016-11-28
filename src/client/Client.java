@@ -15,7 +15,9 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
+import java.util.ArrayList;
 import java.util.StringTokenizer;
+import java.util.Vector;
 
 public class Client extends UnicastRemoteObject implements Trader {
     private static final String USAGE = "java market.Client <CLIENT_NAME> <REGISTRY_PORT_NUMBER>";
@@ -37,9 +39,11 @@ public class Client extends UnicastRemoteObject implements Trader {
 
     // Enumeration of possible commands
     enum CommandName {
-        register(MARKET_COMMAND), unregister(MARKET_COMMAND), login(MARKET_COMMAND), sell(MARKET_COMMAND), buy(MARKET_COMMAND),
-        wish(MARKET_COMMAND), list(MARKET_COMMAND), newAccount(BANK_COMMAND), deleteAccount(BANK_COMMAND),
-        deposit(BANK_COMMAND), withdraw(BANK_COMMAND), balance(BANK_COMMAND), quit(APP_COMMAND), help(APP_COMMAND);
+        register(MARKET_COMMAND), unregister(MARKET_COMMAND), login(MARKET_COMMAND),
+        logout(MARKET_COMMAND), stats(MARKET_COMMAND), sell(MARKET_COMMAND), buy(MARKET_COMMAND), wish(MARKET_COMMAND),
+        list(MARKET_COMMAND), newAccount(BANK_COMMAND), deleteAccount(BANK_COMMAND),
+        deposit(BANK_COMMAND), withdraw(BANK_COMMAND), balance(BANK_COMMAND),
+        quit(APP_COMMAND), help(APP_COMMAND);
 
         private int type;
         public int getType() {
@@ -123,6 +127,23 @@ public class Client extends UnicastRemoteObject implements Trader {
         return account;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        if (!super.equals(o)) return false;
+
+        Client client = (Client) o;
+
+        return clientName.equals(client.clientName);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + clientName.hashCode();
+        return result;
+    }
 
     // Console application
     public void run() {
@@ -155,11 +176,14 @@ public class Client extends UnicastRemoteObject implements Trader {
         }
 
         CommandName commandName = null;
-        float amount = 0;
-        int userInputTokenNo = 1;
+        String password = "";
+
         String itemName = null;
         float itemPrice = 0f;
-        String password = "";
+        int itemAmount = 1;
+
+        float amount = 0; // Bank amout
+        int userInputTokenNo = 1;
 
         // Parse the command
         try {
@@ -193,16 +217,42 @@ public class Client extends UnicastRemoteObject implements Trader {
                 case MARKET_COMMAND:
                     switch (userInputTokenNo) {
                         case 2:
+                            if (commandName.equals(CommandName.logout) || commandName.equals(CommandName.list) ||
+                             commandName.equals(CommandName.stats)) {
+                                System.err.println("Illegal number of arguments");
+                                return null;
+                            }
+
                             if (commandName.equals(CommandName.register) || commandName.equals(CommandName.login))
                                 password = tokenizer.nextToken();
                             else
+                                // Buy/Sell item commands
                                 itemName = tokenizer.nextToken();
                             break;
                         case 3:
+                            if (!(commandName.equals(CommandName.buy) || commandName.equals(CommandName.sell) ||
+                                    commandName.equals(CommandName.wish))) {
+                                System.err.println("Illegal number of arguments");
+                                return null;
+                            }
+
                             try {
                                 itemPrice = Float.parseFloat(tokenizer.nextToken());
                             } catch (NumberFormatException e) {
-                                System.err.println("Illegal amount");
+                                System.err.println("Illegal price");
+                                return null;
+                            }
+                            break;
+                        case 4:
+                            if (!(commandName.equals(CommandName.buy) || commandName.equals(CommandName.sell))) {
+                                System.err.println("Illegal number of arguments");
+                                return null;
+                            }
+
+                            try {
+                                itemAmount = Integer.parseInt(tokenizer.nextToken());
+                            } catch (NumberFormatException e) {
+                                System.err.println("Illegal amount of items");
                                 return null;
                             }
                             break;
@@ -233,7 +283,7 @@ public class Client extends UnicastRemoteObject implements Trader {
                 if (commandName.equals(CommandName.register) || commandName.equals(CommandName.login))
                     command = new CommandMarket(commandName, this, password);
                 else
-                    command = new CommandMarket(commandName, new Item(itemName, itemPrice, 1), this);
+                    command = new CommandMarket(commandName, new Item(itemName, itemPrice, itemAmount), this);
                 break;
             case BANK_COMMAND:
                 command = new CommandBank(commandName, this.clientName, amount);
@@ -297,13 +347,28 @@ public class Client extends UnicastRemoteObject implements Trader {
         public void execute() throws RemoteException, bank.RejectedException, market.RejectedException {
             switch (this.getCommandName()) {
                 case login:
-                    market.login(clientName, password);
+                    market.login(trader, password);
+                    return;
+                case logout:
+                    market.logout(clientName);
                     return;
                 case register:
-                    market.register(clientName, password);
+                    market.register(trader, password);
                     return;
                 case unregister:
-                    market.unregister(clientName);
+                    market.unregister(trader);
+                    return;
+                case stats:
+                    ArrayList<String> stats = market.getStats(clientName);
+                    StringBuilder sb  = new StringBuilder();
+                    sb.append(" ------------------------------------\n");
+                    sb.append("|----------- MY STATISTICS ----------|\n");
+                    sb.append(" ------------------------------------\n");
+                    sb.append("  Username :" + clientName + "\n");
+                    sb.append("  Total nb of items bought: " + stats.get(Market.INDEX_NB_TOTAL_ITEMS_BOUGHT) + "\n");
+                    sb.append("  Total nb of items sold: " + stats.get(Market.INDEX_NB_TOTAL_ITEMS_SOLD) + "\n");
+                    sb.append("-------------------------------------");
+                    System.out.println(sb.toString());
                     return;
                 case buy:
                     market.buy(this.item, this.trader);
@@ -315,7 +380,19 @@ public class Client extends UnicastRemoteObject implements Trader {
                     market.wish(this.item, this.trader);
                     return;
                 case list:
-                    System.out.println(market.getAllItems());
+                    ArrayList<Item> items = market.getAllItems();
+                    StringBuilder sl  = new StringBuilder();
+                    sl.append(" ------------------------------------\n");
+                    sl.append("|-------- ITEMS ON THE MARKET -------|\n");
+                    sl.append(" ------------------------------------\n\n");
+                    if (items.size() == 0)
+                        sl.append("No item available\n");
+                    else {
+                        for (Item i : items)
+                            sl.append(i.toString() + "\n");
+                    }
+                    sl.append("-------------------------------------");
+                    System.out.println(sl.toString());
                     return;
                 default:
                     System.err.println("Illegal market command to be executed");

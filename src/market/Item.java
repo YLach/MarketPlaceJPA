@@ -7,7 +7,7 @@ import java.io.Serializable;
 @NamedQueries({
         @NamedQuery(
                 name = "AllItemsToSell",
-                query = "SELECT i FROM Items i"
+                query = "SELECT i FROM Items i WHERE i.amount > 0"
         ),
 
         @NamedQuery(
@@ -15,6 +15,15 @@ import java.io.Serializable;
                 query = "SELECT i FROM Items i WHERE i.seller.username LIKE :sellerName",
                 lockMode = LockModeType.PESSIMISTIC_FORCE_INCREMENT
         ),
+        @NamedQuery(
+                name = "FindItemsToAck",
+                query = "SELECT i FROM Items i WHERE i.seller.username = :sellerName AND i.toAcknowledge > 0",
+                lockMode = LockModeType.PESSIMISTIC_FORCE_INCREMENT
+        ),
+        @NamedQuery(
+                name = "UpdateAckItem",
+                query = "UPDATE Items i SET i.toAcknowledge = 0 WHERE i.seller.username = :sellerName AND i.toAcknowledge > 0"
+        )
 })
 
 
@@ -24,11 +33,12 @@ public class Item implements Serializable, Comparable<Item> {
     @EmbeddedId
     private ItemKey itemKey;
 
-    @OneToOne(cascade = CascadeType.ALL)
+    @OneToOne
     @JoinColumn(name = "seller", nullable = false)
     private User seller;
 
     private int amount = 0;
+    private int toAcknowledge = 0; // Used to send callback (if the user is not connected when a item is sold)
 
     @Version
     @Column(name = "PESSLOCK")
@@ -72,6 +82,14 @@ public class Item implements Serializable, Comparable<Item> {
 
     public int getAmount() {
         return amount;
+    }
+
+    public int getToAcknowledge() {
+        return toAcknowledge;
+    }
+
+    public void setToAcknowledge(int toAcknowledge) {
+        this.toAcknowledge = toAcknowledge;
     }
 
     public void setAmount(int amount) throws RejectedException {

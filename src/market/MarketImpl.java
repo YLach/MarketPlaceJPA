@@ -4,11 +4,9 @@ package market;
 import bank.Account;
 import bank.Bank;
 import client.Trader;
+import com.sun.org.apache.regexp.internal.RE;
 
-import javax.persistence.EntityManager;
-import javax.persistence.EntityManagerFactory;
-import javax.persistence.EntityTransaction;
-import javax.persistence.Persistence;
+import javax.persistence.*;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
@@ -20,7 +18,7 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
     private static final String BANK = "Nordea";
     private static final int DEFAULT_LOCAL_REGISTRY_PORT_NUMBER = 1099;
 
-    private List<String> loggedIn = new LinkedList<>();
+    private Map<String, Trader> loggedIn = new HashMap<>();
     private AbstractMap<Item, Trader> wishList = new ConcurrentSkipListMap<>();
     private String bankname;
     Bank bankobj;
@@ -67,10 +65,25 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
         System.out.println("Connected to bank: " + bankname);
     }
 
-    @Override
-    public void login(String username, String password) throws RemoteException, RejectedException {
+    private boolean isLoggedIn(String clientName) throws RemoteException {
+        if (loggedIn.containsKey(clientName)) {
+            try {
+                loggedIn.get(clientName).getClientName(); //Remote call to check is still the same remote client
+                return true;
+            } catch (RemoteException e) {
+                loggedIn.remove(clientName);
+                return false;
+            }
+        }
+        return false;
+    }
 
-        if (loggedIn.contains(username))
+    @Override
+    public void login(Trader trader, String password) throws RemoteException, RejectedException {
+        String clientName = trader.getClientName();
+
+        // Check if already logged in
+        if (isLoggedIn(clientName))
             throw new RejectedException("You are already logged in");
 
         EntityManager em = null;
@@ -79,25 +92,47 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
             em = beginTransaction();
 
             // Check if user with the same name already exists
-            User existingUser = em.find(User.class, username);
+            User existingUser = em.find(User.class, clientName);
             if (existingUser == null)
                 throw new RejectedException("Login failed: you are not registered on the market.");
 
             if (!existingUser.getPassword().equals(password))
                 throw new RejectedException("Login failed: wrong password");
 
-            loggedIn.add(username);
-            System.out.println("Trader " + username + " logged in on the market.");
+            loggedIn.put(clientName, trader);
+            System.out.println("Trader " + clientName + " logged in on the market.");
+
+
+            // Callback to send since last login ?
+            Query query = em.createNamedQuery("FindItemsToAck", Item.class);
+            query.setParameter("sellerName", clientName);
+            List<Item> itemsToAck = query.getResultList();
+            for (Item i : itemsToAck) {
+                trader.callback(i.getToAcknowledge() + " " + i + " has/have been sold");
+                i.setToAcknowledge(0);
+                //em.createNamedQuery("UpdateAckItem").setParameter("sellerName", clientName).executeUpdate();
+            }
+
         } finally {
             if (em != null)
                 commitTransaction(em);
         }
-
     }
 
     @Override
-    public synchronized void register(String traderName, String password)
+    public void logout(String traderName) throws RemoteException, RejectedException {
+        if (!isLoggedIn(traderName))
+            throw new RejectedException("You are not logged in");
+
+        loggedIn.remove(traderName);
+        System.out.println("Trader " + traderName + " logged out from the market.");
+    }
+
+    @Override
+    public synchronized void register(Trader trader, String password)
             throws RemoteException, RejectedException {
+        String traderName = trader.getClientName();
+
         EntityManager em = null;
         User user;
         try {
@@ -106,7 +141,7 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
             // Check if user with the same name already exists
             User existingUser = em.find(User.class, traderName);
             if (existingUser != null)
-                throw new RejectedException("Trader " + traderName + " already registered");
+                throw new RejectedException("Registration failed: Trader " + traderName + " already registered");
 
             // Not already registered
             // Check the password length
@@ -117,19 +152,23 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
             user = new User(traderName, password);
             em.persist(user);
 
+            // Logged in automatically
+            loggedIn.put(traderName, trader);
+
             System.out.println("Trader " + traderName + " registered on the market.");
 
         } finally {
             if (em != null)
                 commitTransaction(em);
         }
-
     }
 
     @Override
-    public synchronized void unregister(String traderName) throws RemoteException, RejectedException {
+    public synchronized void unregister(Trader trader) throws RemoteException, RejectedException {
+        String traderName = trader.getClientName();
+
         // Remove all items belonging to that trader
-        if (!loggedIn.contains(traderName))
+        if (!isLoggedIn(traderName))
             throw new RejectedException("Trader " + traderName + " not registered");
 
         EntityManager em = null;
@@ -151,6 +190,14 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
                     wishList.remove(entry.getKey());
             }
 
+            // Suppression from the persistence storage
+            User userToUnregister = em.find(User.class, traderName);
+            if (em != null)
+                em.remove(userToUnregister);
+            else
+                throw new RejectedException("Unregistration failed: User " + traderName +
+                " already unregistered");
+
         } finally {
             if (em != null)
                 commitTransaction(em);
@@ -163,16 +210,17 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
 
     @Override
     public void sell(Item itemToSell, Trader trader) throws RemoteException, RejectedException {
+        String traderName = trader.getClientName();
 
         // Trader registered on the market ?
-        if (!loggedIn.contains(trader.getClientName()))
-            throw new RejectedException("You are not registered on the market");
+        if (!isLoggedIn(traderName))
+            throw new RejectedException("Sell failed: you are not logged in / registered on the market");
 
         // Get an account ?
         Account account = bankobj.findAccount(trader.getClientName());
         if (account == null)
             throw new RejectedException("You cannot sell the item " + itemToSell  +
-                    " : you do not get an account at bank " + bankname);
+                    ": you do not get an account at bank " + bankname);
 
         EntityManager em = null;
 
@@ -183,7 +231,7 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
             Item item = em.find(Item.class, new ItemKey(itemToSell.getName(), itemToSell.getPrice()));
 
             if ( (item != null) && (!item.getSeller().getUsername().equals(trader.getClientName())) )
-                throw new RejectedException("Item " + itemToSell + " already on the market.");
+                throw new RejectedException("Sell failed: item " + itemToSell + " already on the market.");
 
             // Can be sold
             if (item != null)
@@ -213,7 +261,10 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
                     if ((itemToSell.compareTo(entry.getKey()) <= 0) &&
                             (entry.getKey().getName().equals(itemToSell.getName()))) {
                         // Send callback
-                        entry.getValue().callback(itemToSell + " available on the market");
+                        try {
+                            if (isLoggedIn(entry.getValue().getClientName()))
+                                entry.getValue().callback(itemToSell + " available on the market");
+                        } catch (RemoteException e) {}
 
                         // Remove its wish ?
                         wishList.remove(entry.getKey());
@@ -226,9 +277,11 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
     @Override
     public void buy(Item itemToBuy, Trader trader) throws RemoteException, RejectedException,
             bank.RejectedException {
+        String traderName = trader.getClientName();
+
         // Trader registered on the market ?
-        if (!loggedIn.contains(trader.getClientName()))
-            throw new RejectedException("You are not registered on the market");
+        if (!isLoggedIn(traderName))
+            throw new RejectedException("Buy failed: you are not logged in / registered on the market");
 
         EntityManager em = null;
 
@@ -237,46 +290,58 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
 
             // Item on the market ?
             Item itemToSell = em.find(Item.class, new ItemKey(itemToBuy.getName(), itemToBuy.getPrice()));
-
             if (itemToSell == null)
-                throw new RejectedException("Item " + itemToBuy + " no longer on the market.");
+                throw new RejectedException("Buy failed: item " + itemToBuy + " no longer on the market.");
 
             // Enough amount of item ?
             if (itemToSell.getAmount() < itemToBuy.getAmount())
-                throw new RejectedException("You cannot buy " + itemToBuy.getAmount() + " items " + itemToBuy +
-                        " : there is only " + itemToSell.getAmount() + " items remaining on the market");
+                throw new RejectedException("Bell failed: you cannot buy " + itemToBuy.getAmount() +
+                        " items " + itemToBuy + " : there is only " + itemToSell.getAmount() +
+                        " items remaining on the market");
 
             // Get an account ?
             Account accountBuyer = bankobj.findAccount(trader.getClientName());
             if (accountBuyer == null)
-                throw new RejectedException("You cannot buy the item " + itemToBuy +
+                throw new RejectedException("Buy failed: you cannot buy the item " + itemToBuy +
                         " : you do not get an account at bank " + bankname);
 
             // Enough money ?
-
             if (accountBuyer.getBalance() < (itemToSell.getPrice() * itemToBuy.getAmount()))
-                throw new RejectedException("You cannot afford to buy " + itemToBuy.getAmount() + " " + itemToBuy);
+                throw new RejectedException("Buy failed: you cannot afford to buy " +
+                        itemToBuy.getAmount() + " " + itemToBuy);
 
             // Yes
-            Account accountSeller = bankobj.findAccount(itemToSell.getSeller().getUsername());
-            accountBuyer.withdraw(itemToSell.getPrice() * itemToBuy.getAmount());
-            accountSeller.deposit(itemToSell.getPrice() * itemToBuy.getAmount());
+            String sellerName = itemToSell.getSeller().getUsername();
+            Account accountSeller = bankobj.findAccount(sellerName);
+            if (!(accountSeller == null))
+                bankobj.withdraw(traderName, itemToSell.getPrice() * itemToBuy.getAmount());
+            bankobj.deposit(sellerName, itemToSell.getPrice() * itemToBuy.getAmount());
 
-            if (itemToSell.getAmount() == itemToBuy.getAmount()) {
-                // Remove item from database
-                em.remove(itemToSell);
-            } else {
+            // Update stats
+            User seller = itemToSell.getSeller();
+            seller.setNbTotalItemsSold(seller.getNbTotalItemsSold() + itemToBuy.getAmount());
+            User buyer = em.find(User.class, trader.getClientName());
+            buyer.setNbTotalItemsBought(buyer.getNbTotalItemsBought() + itemToBuy.getAmount());
+
+
+            // Callback
+            if (!isLoggedIn(sellerName)) {
+                itemToSell.setToAcknowledge(itemToSell.getToAcknowledge() + itemToBuy.getAmount());
                 itemToSell.setAmount(itemToSell.getAmount() - itemToBuy.getAmount());
+            } else {
+                loggedIn.get(sellerName).callback(itemToBuy.getAmount() + " " + itemToBuy + " has/have been sold");
+
+                if (itemToSell.getAmount() == itemToBuy.getAmount()) {
+                    // Remove item from database
+                    em.remove(itemToSell);
+                } else {
+                    itemToSell.setAmount(itemToSell.getAmount() - itemToBuy.getAmount());
+                }
             }
-
-            // Callback   TODO
-            //  seller.callback(itemName + " has been sold");
-
         } finally {
             if (em != null) {
                 commitTransaction(em);
-
-                System.out.println(itemToBuy + " bought by " + trader.getClientName());
+                System.out.println(itemToBuy.getAmount() + " " + itemToBuy + " bought by " + trader.getClientName());
             }
         }
     }
@@ -285,9 +350,11 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
     @Override
     public void wish(Item item, Trader trader) throws RemoteException, RejectedException,
             bank.RejectedException {
+        String traderName = trader.getClientName();
+
         // Trader registered on the market ?
-        if (!loggedIn.contains(trader.getClientName()))
-            throw new RejectedException("You are not registered on the market");
+        if (!isLoggedIn(traderName))
+            throw new RejectedException("You are not logged in / registered on the market");
 
         // Already did a wish for that item ?
         for (Map.Entry<Item, Trader> entry : wishList.entrySet()) {
@@ -310,34 +377,53 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
     }
 
     @Override
-    public String getAllItems() throws RemoteException {
-        StringBuilder sb  = new StringBuilder();
-        sb.append(" ------------------------------------\n");
-        sb.append("|-------- ITEMS ON THE MARKET -------|\n");
-        sb.append(" ------------------------------------\n\n");
+    public ArrayList<Item> getAllItems() throws RemoteException {
+        EntityManager em = null;
+        List<Item> items = null;
 
+        try {
+            em = beginTransaction();
+
+            items = em.createNamedQuery("AllItemsToSell", Item.class).getResultList();
+            System.err.println("SIZE : " + items.size());
+        } finally {
+            if (em != null)
+                commitTransaction(em);
+            return new ArrayList<>(items);
+        }
+
+    }
+
+    @Override
+    public ArrayList getStats(String username) throws RemoteException, RejectedException {
+        // Trader registered on the market ?
+        if (!isLoggedIn(username))
+            throw new RejectedException("You are not logged in / registered on the market");
+
+        ArrayList stats = null;
         EntityManager em = null;
 
         try {
             em = beginTransaction();
 
-            List<Item> items = em.createNamedQuery("AllItemsToSell", Item.class).getResultList();
-            if (items.size() == 0)
-                sb.append("No item available\n");
-            else {
-                for (Item i : items)
-                    sb.append(i.toString() + "\n");
-            }
+            // Check if user with the same name already exists
+            User existingUser = em.find(User.class, username);
+            if (existingUser == null)
+                throw new RejectedException("Get Statistics failed: user " +
+                        username + " is not registered on the market.");
+
+            stats = new ArrayList<String>(2);
+            stats.add(INDEX_NB_TOTAL_ITEMS_BOUGHT, String.valueOf(existingUser.getNbTotalItemsBought()));
+            stats.add(INDEX_NB_TOTAL_ITEMS_SOLD, String.valueOf(existingUser.getNbTotalItemsSold()));
 
         } finally {
-            commitTransaction(em);
+            if (em != null)
+                commitTransaction(em);
+            return stats;
         }
-
-        sb.append("-------------------------------------");
-        return sb.toString();
     }
 
-
+    // Transaction management
     private EntityManager beginTransaction()
     {
         EntityManager em = emFactory.createEntityManager();
