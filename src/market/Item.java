@@ -12,7 +12,7 @@ import java.io.Serializable;
 
         @NamedQuery(
                 name = "FindItemsBySeller",
-                query = "SELECT i FROM Items i WHERE i.seller.username LIKE :sellerName",
+                query = "SELECT i FROM Items i WHERE i.seller.username = :sellerName",
                 lockMode = LockModeType.PESSIMISTIC_FORCE_INCREMENT
         ),
         @NamedQuery(

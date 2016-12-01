@@ -262,12 +262,12 @@ public class MarketImpl extends UnicastRemoteObject implements Market {
                             (entry.getKey().getName().equals(itemToSell.getName()))) {
                         // Send callback
                         try {
-                            if (isLoggedIn(entry.getValue().getClientName()))
+                            if (isLoggedIn(entry.getValue().getClientName())) {
                                 entry.getValue().callback(itemToSell + " available on the market");
+                                // Remove its wish ?
+                                wishList.remove(entry.getKey());
+                            }
                         } catch (RemoteException e) {}
-
-                        // Remove its wish ?
-                        wishList.remove(entry.getKey());
                     }
                 }
             }
