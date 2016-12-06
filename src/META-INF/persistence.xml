@@ -11,8 +11,8 @@
             <!-- <property name="eclipselink.ddl-generation" value="drop-and-create-tables"/> -->
             <property name="eclipselink.ddl-generation.output-mode" value="both"/>
             <property name="eclipselink.logging.level" value="INFO"/>
-            <property name="javax.persistence.jdbc.password" value="admin"/>
-            <property name="javax.persistence.jdbc.user" value="admin"/>
+            <property name="javax.persistence.jdbc.password" value="*****"/>
+            <property name="javax.persistence.jdbc.user" value="*****"/>
             <property name="javax.persistence.jdbc.url"
                       value="jdbc:derby://localhost:1527/bank;create=true"/>
             <property name="javax.persistence.jdbc.driver" value="org.apache.derby.jdbc.ClientDriver"/>
@@ -28,8 +28,8 @@
             <!-- <property name="eclipselink.ddl-generation" value="drop-and-create-tables"/> -->
             <property name="eclipselink.ddl-generation.output-mode" value="both"/>
             <property name="eclipselink.logging.level" value="INFO"/>
-            <property name="javax.persistence.jdbc.password" value="admin"/>
-            <property name="javax.persistence.jdbc.user" value="admin"/>
+            <property name="javax.persistence.jdbc.password" value="******"/>
+            <property name="javax.persistence.jdbc.user" value="*****"/>
             <property name="javax.persistence.jdbc.url"
                       value="jdbc:derby://localhost:1527/market;create=true"/>
             <property name="javax.persistence.jdbc.driver" value="org.apache.derby.jdbc.ClientDriver"/>
